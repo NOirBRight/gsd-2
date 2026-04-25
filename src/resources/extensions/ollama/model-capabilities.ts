@@ -37,13 +37,26 @@ const KNOWN_MODELS: Array<[pattern: string, caps: ModelCapability]> = [
 	["deepseek-v4",       { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
 	["qwq",               { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
 	["gpt-oss",           { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
-	["glm-4",             { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
+	// GLM family — long prefix MUST come before short prefix.
+	// glm-5.1: 200K context per Z.ai docs (https://docs.z.ai/devpack/using5.1)
+	// glm-4.6: 200K context per Zhipu official spec
+	["glm-5.1",           { contextWindow: 204800, maxTokens: 131072, reasoning: true, ollamaOptions: { num_ctx: 204800 } }],
 	["glm-5",             { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
+	["glm-4.6",           { contextWindow: 204800, reasoning: true, ollamaOptions: { num_ctx: 204800 } }],
+	["glm-4",             { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
+	// Kimi K2 family — k2-thinking / k2.5 / k2.6 are 256K; base k2 stays 128K.
+	["kimi-k2-thinking",  { contextWindow: 262144, reasoning: true, ollamaOptions: { num_ctx: 262144 } }],
+	["kimi-k2.6",         { contextWindow: 262144, reasoning: true, ollamaOptions: { num_ctx: 262144 } }],
+	["kimi-k2.5",         { contextWindow: 262144, reasoning: true, ollamaOptions: { num_ctx: 262144 } }],
 	["kimi-k2",           { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
+	// MiniMax M2 family — M2.5 / M2.7 are 1M context.
+	["minimax-m2.7",      { contextWindow: 1048576, reasoning: true, ollamaOptions: { num_ctx: 1048576 } }],
+	["minimax-m2.5",      { contextWindow: 1048576, reasoning: true, ollamaOptions: { num_ctx: 1048576 } }],
 	["minimax-m2",        { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
 	["nemotron-3",        { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
 	["gemma4",            { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
 	["gemini-3-flash",    { contextWindow: 1048576, reasoning: true, ollamaOptions: { num_ctx: 1048576 } }],
+	["cogito",            { contextWindow: 131072, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
 
 	// ─── Vision models ──────────────────────────────────────────────────
 	["llava", { contextWindow: 4096, input: ["text", "image"], ollamaOptions: { num_ctx: 4096 } }],
@@ -59,6 +72,8 @@ const KNOWN_MODELS: Array<[pattern: string, caps: ModelCapability]> = [
 	["starcoder2", { contextWindow: 16384, maxTokens: 8192, ollamaOptions: { num_ctx: 16384 } }],
 	["codegemma", { contextWindow: 8192, maxTokens: 8192, ollamaOptions: { num_ctx: 8192 } }],
 	["codellama", { contextWindow: 16384, maxTokens: 8192, ollamaOptions: { num_ctx: 16384 } }],
+	["devstral-small-2", { contextWindow: 131072, maxTokens: 32768, ollamaOptions: { num_ctx: 131072 } }],
+	["devstral-2", { contextWindow: 131072, maxTokens: 32768, ollamaOptions: { num_ctx: 131072 } }],
 	["devstral", { contextWindow: 131072, maxTokens: 32768, ollamaOptions: { num_ctx: 131072 } }],
 
 	// ─── Llama family ───────────────────────────────────────────────────
@@ -72,6 +87,13 @@ const KNOWN_MODELS: Array<[pattern: string, caps: ModelCapability]> = [
 	// qwen3 family (qwen3, qwen3-next, qwen3.5, qwen3-coder) supports hybrid thinking;
 	// /api/show capabilities is authoritative — this table entry is only consulted
 	// when ollama omits the capabilities field.
+	// More specific Qwen3 tags MUST come before generic "qwen3" (startsWith match).
+	["qwen3-coder-next", { contextWindow: 262144, maxTokens: 32768, reasoning: true, ollamaOptions: { num_ctx: 262144 } }],
+	["qwen3-coder", { contextWindow: 262144, maxTokens: 32768, ollamaOptions: { num_ctx: 262144 } }],
+	["qwen3-next", { contextWindow: 1048576, maxTokens: 65536, reasoning: true, ollamaOptions: { num_ctx: 1048576 } }],
+	["qwen3-vl", { contextWindow: 131072, maxTokens: 32768, input: ["text", "image"], ollamaOptions: { num_ctx: 131072 } }],
+	["qwen3.6", { contextWindow: 1000000, maxTokens: 65536, reasoning: true, ollamaOptions: { num_ctx: 1000000 } }],
+	["qwen3.5", { contextWindow: 1000000, maxTokens: 65536, reasoning: true, ollamaOptions: { num_ctx: 1000000 } }],
 	["qwen3", { contextWindow: 131072, maxTokens: 32768, reasoning: true, ollamaOptions: { num_ctx: 131072 } }],
 	["qwen2.5", { contextWindow: 131072, maxTokens: 32768, ollamaOptions: { num_ctx: 131072 } }],
 	["qwen2", { contextWindow: 131072, maxTokens: 32768, ollamaOptions: { num_ctx: 131072 } }],
@@ -84,6 +106,7 @@ const KNOWN_MODELS: Array<[pattern: string, caps: ModelCapability]> = [
 	["mistral-large", { contextWindow: 131072, maxTokens: 16384, ollamaOptions: { num_ctx: 131072 } }],
 	["mistral-small", { contextWindow: 131072, maxTokens: 16384, ollamaOptions: { num_ctx: 131072 } }],
 	["mistral-nemo", { contextWindow: 131072, maxTokens: 16384, ollamaOptions: { num_ctx: 131072 } }],
+	["ministral-3", { contextWindow: 131072, maxTokens: 16384, ollamaOptions: { num_ctx: 131072 } }],
 	["mistral", { contextWindow: 32768, maxTokens: 8192, ollamaOptions: { num_ctx: 32768 } }],
 	["mixtral", { contextWindow: 32768, maxTokens: 8192, ollamaOptions: { num_ctx: 32768 } }],
 

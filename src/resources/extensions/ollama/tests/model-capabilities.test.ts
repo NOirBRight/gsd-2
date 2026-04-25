@@ -124,6 +124,96 @@ describe("getModelCapabilities", () => {
 	it("flags gemini-3-flash-preview as reasoning", () => {
 		assert.equal(getModelCapabilities("gemini-3-flash-preview:cloud").reasoning, true);
 	});
+
+	// ─── Ordering edge cases: long prefix MUST win over short prefix ────────
+	// `getModelCapabilities` matches with `baseName.startsWith(pattern)`, so
+	// without correct ordering a more-specific cloud model (e.g. glm-5.1) gets
+	// silently shadowed by its base family (e.g. glm-5) and reports the wrong
+	// context window. These tests pin that ordering.
+
+	it("glm-5.1 reports its own 200K context, not glm-5's 128K", () => {
+		const caps = getModelCapabilities("glm-5.1:cloud");
+		assert.equal(caps.contextWindow, 204800);
+		assert.equal(caps.ollamaOptions?.num_ctx, 204800);
+	});
+
+	it("glm-4.6 reports its own 200K context, not glm-4's 128K", () => {
+		const caps = getModelCapabilities("glm-4.6:cloud");
+		assert.equal(caps.contextWindow, 204800);
+	});
+
+	it("glm-5 base remains 128K (regression check)", () => {
+		assert.equal(getModelCapabilities("glm-5:cloud").contextWindow, 131072);
+	});
+
+	it("kimi-k2-thinking / kimi-k2.5 / kimi-k2.6 report 256K, not k2 base 128K", () => {
+		assert.equal(getModelCapabilities("kimi-k2-thinking").contextWindow, 262144);
+		assert.equal(getModelCapabilities("kimi-k2.5:cloud").contextWindow, 262144);
+		assert.equal(getModelCapabilities("kimi-k2.6:cloud").contextWindow, 262144);
+	});
+
+	it("kimi-k2 base remains 128K (regression check)", () => {
+		assert.equal(getModelCapabilities("kimi-k2:1t").contextWindow, 131072);
+	});
+
+	it("qwen3-coder reports 256K, not qwen3 base 128K", () => {
+		assert.equal(getModelCapabilities("qwen3-coder:480b").contextWindow, 262144);
+		assert.equal(getModelCapabilities("qwen3-coder-next").contextWindow, 262144);
+	});
+
+	it("qwen3-next reports 1M, not qwen3 base 128K", () => {
+		assert.equal(getModelCapabilities("qwen3-next:80b").contextWindow, 1048576);
+	});
+
+	it("qwen3-vl is a vision model with 128K context", () => {
+		const caps = getModelCapabilities("qwen3-vl:235b");
+		assert.equal(caps.contextWindow, 131072);
+		assert.deepEqual(caps.input, ["text", "image"]);
+	});
+
+	it("qwen3.5 / qwen3.6 report 1M context", () => {
+		assert.equal(getModelCapabilities("qwen3.5:397b").contextWindow, 1000000);
+		assert.equal(getModelCapabilities("qwen3.6:cloud").contextWindow, 1000000);
+	});
+
+	it("qwen3 base remains 128K (regression check)", () => {
+		assert.equal(getModelCapabilities("qwen3:8b").contextWindow, 131072);
+	});
+
+	it("minimax-m2.5 / m2.7 report 1M, not m2 base 128K", () => {
+		assert.equal(getModelCapabilities("minimax-m2.5:cloud").contextWindow, 1048576);
+		assert.equal(getModelCapabilities("minimax-m2.7:cloud").contextWindow, 1048576);
+	});
+
+	it("minimax-m2 base remains 128K (regression check)", () => {
+		assert.equal(getModelCapabilities("minimax-m2:cloud").contextWindow, 131072);
+	});
+
+	it("devstral-small-2 / devstral-2 report 128K (covers cloud-only large variants)", () => {
+		assert.equal(getModelCapabilities("devstral-small-2:24b").contextWindow, 131072);
+		assert.equal(getModelCapabilities("devstral-2:123b").contextWindow, 131072);
+	});
+
+	it("ministral-3 reports 128K (does not collide with mistral)", () => {
+		const caps = getModelCapabilities("ministral-3:8b");
+		assert.equal(caps.contextWindow, 131072);
+		assert.equal(caps.maxTokens, 16384);
+	});
+
+	it("cogito flags reasoning at 128K", () => {
+		const caps = getModelCapabilities("cogito-2.1:671b");
+		assert.equal(caps.contextWindow, 131072);
+		assert.equal(caps.reasoning, true);
+	});
+
+	it("ollamaOptions.num_ctx matches contextWindow for cloud-only specific tags", () => {
+		// Verify num_ctx is set authoritatively (not omitted) for the long-prefix
+		// entries — preventing the regression where a missing num_ctx would silently
+		// fall back to ollama's small default.
+		assert.equal(getModelCapabilities("glm-5.1:cloud").ollamaOptions?.num_ctx, 204800);
+		assert.equal(getModelCapabilities("kimi-k2-thinking").ollamaOptions?.num_ctx, 262144);
+		assert.equal(getModelCapabilities("qwen3-next:80b").ollamaOptions?.num_ctx, 1048576);
+	});
 });
 
 // ─── estimateContextFromParams ───────────────────────────────────────────────
