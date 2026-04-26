@@ -50,6 +50,16 @@ export interface UnitMetrics {
   assistantMessages: number;
   userMessages: number;
   apiRequests?: number;    // total API requests made (useful for copilot users where cost is always 0)
+  /**
+   * "Action units": Σ max(1, toolCallsInMessage) over all assistant messages.
+   * Bridges the gap between strict apiRequests counting (one per LLM call)
+   * and toolCalls counting. A pure-text response counts as 1; a single-tool
+   * response also counts as 1 (no double counting); a multi-tool response
+   * counts as the number of tools (parallel actions). Useful when comparing
+   * client-side activity against vendor quotas that conflate requests +
+   * tool calls.
+   */
+  actions?: number;
   // Budget fields (optional — absent in pre-M009 metrics data)
   contextWindowTokens?: number;
   truncationSections?: number;
@@ -159,6 +169,7 @@ export function snapshotUnitMetrics(
   const tokens: TokenCounts = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
   let cost = 0;
   let toolCalls = 0;
+  let actions = 0;
   let assistantMessages = 0;
   let userMessages = 0;
 
@@ -180,12 +191,15 @@ export function snapshotUnitMetrics(
           cost += typeof c === "number" ? c : (c.total ?? 0);
         }
       }
-      // Count tool calls in this message
+      // Count tool calls in this message + derive `actions` per max(1, toolCount)
+      let toolCallsInThisMessage = 0;
       if (msg.content && Array.isArray(msg.content)) {
         for (const block of msg.content) {
-          if (block.type === "toolCall") toolCalls++;
+          if (block.type === "toolCall") toolCallsInThisMessage++;
         }
       }
+      toolCalls += toolCallsInThisMessage;
+      actions += Math.max(1, toolCallsInThisMessage);
     } else if (msg.role === "user") {
       userMessages++;
     }
@@ -204,6 +218,7 @@ export function snapshotUnitMetrics(
     assistantMessages,
     userMessages,
     apiRequests: assistantMessages, // each assistant message = one API request
+    actions,
     ...(opts?.tier ? { tier: opts.tier } : {}),
     ...(opts?.modelDowngraded !== undefined ? { modelDowngraded: opts.modelDowngraded } : {}),
     ...(opts?.contextWindowTokens !== undefined ? { contextWindowTokens: opts.contextWindowTokens } : {}),
@@ -307,6 +322,8 @@ export interface ProjectTotals {
   assistantMessages: number;
   userMessages: number;
   apiRequests: number;
+  /** Σ max(1, toolCallsInMessage) — see UnitMetrics.actions for rationale. */
+  actions: number;
   totalTruncationSections: number;
   continueHereFiredCount: number;
 }
@@ -390,6 +407,7 @@ export function getProjectTotals(units: UnitMetrics[]): ProjectTotals {
     assistantMessages: 0,
     userMessages: 0,
     apiRequests: 0,
+    actions: 0,
     totalTruncationSections: 0,
     continueHereFiredCount: 0,
   };
@@ -401,6 +419,10 @@ export function getProjectTotals(units: UnitMetrics[]): ProjectTotals {
     totals.assistantMessages += u.assistantMessages;
     totals.userMessages += u.userMessages;
     totals.apiRequests += u.apiRequests ?? u.assistantMessages; // fallback for pre-existing data
+    // Fallback for pre-existing data: if `actions` not recorded, derive from
+    // toolCalls and assistantMessages — best-effort approximation that holds
+    // when each pre-existing message had ≤ 1 tool call.
+    totals.actions += u.actions ?? Math.max(u.toolCalls, u.assistantMessages);
     totals.totalTruncationSections += u.truncationSections ?? 0;
     if (u.continueHereFired) totals.continueHereFiredCount++;
   }

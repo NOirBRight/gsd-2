@@ -705,23 +705,54 @@ export function updateProgressWidget(
         }
 
         // ── Gather stats (needed by multiple modes) ─────────────────────
+        // Live counters scanned from the in-memory session manager every render.
+        // Unlike autoTotals (ledger-backed, only flushes when a unit completes),
+        // these tick in real time as messages stream in — so the footer stats
+        // line moves while a single unit is mid-flight, not just at unit
+        // boundaries.
         const cmdCtx = accessors.getCmdCtx();
         let totalInput = 0;
         let totalCacheRead = 0;
+        let totalOutput = 0;
+        let totalCacheWrite = 0;
+        let liveRequests = 0;
+        let liveToolCalls = 0;
+        // "Acts" = Σ max(1, toolCount) per assistant message. Bridges the
+        // gap between Reqs (HTTP calls) and Tools (raw tool block count) —
+        // a pure-text reply still counts as 1; a single-tool reply also 1
+        // (no double counting); multi-tool reply counts once per tool.
+        // Useful when comparing client activity to vendor quotas that mix
+        // requests with tool calls.
+        let liveActions = 0;
         if (cmdCtx) {
           for (const entry of cmdCtx.sessionManager.getEntries()) {
             if (entry.type === "message") {
               const msgEntry = entry as SessionMessageEntry;
               if (msgEntry.message?.role === "assistant") {
+                liveRequests++;
                 const u = (msgEntry.message as any).usage;
                 if (u) {
                   totalInput += u.input || 0;
                   totalCacheRead += u.cacheRead || 0;
+                  totalOutput += u.output || 0;
+                  totalCacheWrite += u.cacheWrite || 0;
                 }
+                let toolCallsInThisMessage = 0;
+                const content = (msgEntry.message as any).content;
+                if (Array.isArray(content)) {
+                  for (const block of content) {
+                    if (block?.type === "toolCall" || block?.type === "tool_use") {
+                      toolCallsInThisMessage++;
+                    }
+                  }
+                }
+                liveToolCalls += toolCallsInThisMessage;
+                liveActions += Math.max(1, toolCallsInThisMessage);
               }
             }
           }
         }
+        const liveTokensTotal = totalInput + totalOutput + totalCacheRead + totalCacheWrite;
         const mLedger = getLedger();
         const autoTotals = mLedger ? getProjectTotals(mLedger.units) : null;
         const cumulativeCost = autoTotals?.cost ?? 0;
@@ -920,13 +951,51 @@ export function updateProgressWidget(
         // ── Footer: simplified stats + pwd + last commit + hints ────────
         lines.push("");
         {
+          // ── LEFT: cumulative milestone stats (Reqs · Tools · Tokens · Cost)
+          // Layered: ledger base (already-finalized units) + live delta from
+          // the in-memory session manager (current in-flight unit). The
+          // ledger is flushed only on unit completion, so without the live
+          // delta the numbers would only tick at unit boundaries. Adding the
+          // session-scanned delta makes the footer move every render
+          // (~800ms via pulseTimer) while still anchoring on the ledger
+          // total whenever a unit lands.
+          //
+          // Assumption: sessionManager is reset per unit dispatch, so its
+          // entries reflect ONLY the current in-flight unit — no double
+          // counting against the ledger. If that ever changes, this needs
+          // to subtract the already-ledgered portion.
+          const totalReqs = (autoTotals?.apiRequests ?? 0) + liveRequests;
+          const totalTools = (autoTotals?.toolCalls ?? 0) + liveToolCalls;
+          const totalActs = (autoTotals?.actions ?? 0) + liveActions;
+          const totalTokensSum = (autoTotals?.tokens.total ?? 0) + liveTokensTotal;
+
+          const leftStats: string[] = [];
+          if (totalReqs > 0) {
+            leftStats.push(`${theme.fg("dim", "Reqs ")}${theme.fg("text", String(totalReqs))}`);
+          }
+          if (totalTools > 0) {
+            leftStats.push(`${theme.fg("dim", "Tools ")}${theme.fg("text", String(totalTools))}`);
+          }
+          if (totalActs > 0) {
+            leftStats.push(`${theme.fg("dim", "Acts ")}${theme.fg("text", String(totalActs))}`);
+          }
+          if (totalTokensSum > 0) {
+            leftStats.push(`${theme.fg("dim", "Tokens ")}${theme.fg("text", formatWidgetTokens(totalTokensSum))}`);
+          }
+          if (cumulativeCost) {
+            leftStats.push(theme.fg("warning", `$${cumulativeCost.toFixed(2)}`));
+          }
+          const leftStr = leftStats.length > 0
+            ? `${pad}${leftStats.join(theme.fg("dim", "  "))}`
+            : "";
+
+          // ── RIGHT: cache hit rate + context bar (live, per-session)
           const sp: string[] = [];
           if (totalCacheRead + totalInput > 0) {
             const hitRate = Math.round((totalCacheRead / (totalCacheRead + totalInput)) * 100);
             const hitColor = hitRate >= 70 ? "success" : hitRate >= 40 ? "warning" : "error";
             sp.push(theme.fg(hitColor, `${hitRate}%hit`));
           }
-          if (cumulativeCost) sp.push(theme.fg("warning", `$${cumulativeCost.toFixed(2)}`));
 
           const CX_BAR_WIDTH = 8;
           const cxBarFilled = Math.min(
@@ -947,10 +1016,10 @@ export function updateProgressWidget(
                 : cxPctText;
           sp.push(`${cxBar} ${cxColorized}`);
 
-          const statsLine = sp.map(p => p.includes("\x1b[") ? p : theme.fg("dim", p))
+          const rightStr = sp.map(p => p.includes("\x1b[") ? p : theme.fg("dim", p))
             .join(theme.fg("dim", "  "));
-          if (statsLine) {
-            lines.push(rightAlign("", statsLine, width));
+          if (leftStr || rightStr) {
+            lines.push(rightAlign(leftStr, rightStr, width));
           }
           if (cachedRtkLabel) {
             lines.push(rightAlign("", theme.fg("dim", cachedRtkLabel), width));
