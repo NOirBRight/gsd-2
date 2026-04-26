@@ -19,8 +19,26 @@ import type {
 import { parseNDJsonStream } from "./ndjson-stream.js";
 
 const DEFAULT_HOST = "http://localhost:11434";
-const PROBE_TIMEOUT_MS = 1500;
-const REQUEST_TIMEOUT_MS = 10000;
+const DEFAULT_PROBE_TIMEOUT_MS = 1500;
+const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
+
+/**
+ * Read a positive integer from a process env var, falling back to `fallback`
+ * when the var is unset, non-numeric, zero, or negative. Used to keep the
+ * existing defaults stable while letting users override them when local
+ * conditions (slow disk, contended IO, remote ollama) need a longer probe.
+ *
+ * Exported for tests; not intended for outside callers.
+ */
+export function envPositiveInt(name: string, fallback: number): number {
+	const raw = process.env[name];
+	if (!raw) return fallback;
+	const n = Number(raw);
+	return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+const PROBE_TIMEOUT_MS = envPositiveInt("OLLAMA_PROBE_TIMEOUT_MS", DEFAULT_PROBE_TIMEOUT_MS);
+const REQUEST_TIMEOUT_MS = envPositiveInt("OLLAMA_REQUEST_TIMEOUT_MS", DEFAULT_REQUEST_TIMEOUT_MS);
 
 /**
  * Get the Ollama host URL from OLLAMA_HOST or default.
